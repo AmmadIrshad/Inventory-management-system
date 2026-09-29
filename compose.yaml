@@ -1,0 +1,76 @@
+name: inventory-management-system
+
+# Development:   podman compose up -d db mailpit      (then `npm run dev` on the host)
+# Full stack:    podman compose --profile app up -d --build
+
+x-database-url: &database-url postgresql://${POSTGRES_USER:-inventory}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-inventory}
+
+services:
+  db:
+    image: docker.io/library/postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-inventory}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-inventory}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      # Postgres 18+ images keep data under /var/lib/postgresql/<major>/, so mount the parent.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mailpit:
+    image: docker.io/axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025" # SMTP
+      - "127.0.0.1:8025:8025" # Web inbox
+
+  migrate:
+    profiles: [app]
+    build:
+      context: .
+      target: migrator
+    image: localhost/inventory-management-system-migrator:latest
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    profiles: [app]
+    build:
+      context: .
+      target: runner
+    image: localhost/inventory-management-system:latest
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: *database-url
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env}
+      SMTP_HOST: ${CONTAINER_SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-Inventory <no-reply@inventory.local>}
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:

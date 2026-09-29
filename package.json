@@ -1,0 +1,67 @@
+{
+  "name": "inventory-management-system",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "postinstall": "prisma generate",
+    "services:up": "podman compose up -d db mailpit",
+    "services:down": "podman compose down",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@node-rs/argon2": "^2.2.1",
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "@zxcvbn-ts/core": "^4.2.0",
+    "@zxcvbn-ts/language-common": "^4.1.3",
+    "@zxcvbn-ts/language-en": "^4.1.1",
+    "next": "16.3.7",
+    "nodemailer": "^10.0.12",
+    "otpauth": "^9.5.2",
+    "pg": "^8.23.0",
+    "qrcode": "^1.5.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^24.19.0",
+    "@types/nodemailer": "^8.0.2",
+    "@types/pg": "^8.23.1",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "dotenv": "^18.0.4",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.7",
+    "prisma": "7.10.0",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^5.0.2"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.2",
+    "mysql2": "^3.24.4"
+  },
+  "allowScripts": {
+    "@prisma/engines@7.10.0": true,
+    "prisma@7.10.0": true,
+    "unrs-resolver@1.12.2": true
+  }
+}

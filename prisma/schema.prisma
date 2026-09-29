@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String @id @default(uuid(7)) @db.Uuid
+  email        String @unique
+  name         String
+  passwordHash String @map("password_hash")
+
+  // AES-256-GCM encrypted base32 TOTP secret. Set (with totpEnabledAt = null) while
+  // enrollment is pending, and kept after confirmation.
+  totpSecret       String?   @map("totp_secret")
+  totpEnabledAt    DateTime? @map("totp_enabled_at") @db.Timestamptz(3)
+  // Highest TOTP time-step accepted so far; codes at or below it are replays.
+  totpLastUsedStep Int?      @map("totp_last_used_step")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sessions            Session[]
+  recoveryCodes       RecoveryCode[]
+  passwordResetTokens PasswordResetToken[]
+
+  @@map("users")
+}
+
+model Session {
+  // SHA-256 of the random token stored in the browser cookie.
+  id                String   @id
+  userId            String   @map("user_id") @db.Uuid
+  twoFactorVerified Boolean  @default(false) @map("two_factor_verified")
+  twoFactorAttempts Int      @default(0) @map("two_factor_attempts")
+  expiresAt         DateTime @map("expires_at") @db.Timestamptz(3)
+  ipAddress         String?  @map("ip_address")
+  userAgent         String?  @map("user_agent")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model RecoveryCode {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  codeHash  String    @map("code_hash")
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, codeHash])
+  @@map("recovery_codes")
+}
+
+model PasswordResetToken {
+  // SHA-256 of the token sent by email.
+  id        String    @id
+  userId    String    @map("user_id") @db.Uuid
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
