@@ -1,38 +1,38 @@
 name: inventory-management-system
 
-# Development:   podman compose up -d db mailpit      (then `npm run dev` on the host)
-# Full stack:    podman compose --profile app up -d --build
+# Production: build images, run migrations once, start the app (reads settings from .env):
+#   podman compose up -d --build
+# Production with HTTPS for DOMAIN (Nginx + a Let's Encrypt certificate kept fresh by Certbot):
+#   podman compose --profile https up -d --build
+# Development: only the database and a local inbox, then `npm run dev` on the host:
+#   podman compose --profile dev up -d db mailpit
 
 x-database-url: &database-url postgresql://${POSTGRES_USER:-inventory}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-inventory}
 
 services:
   db:
     image: docker.io/library/postgres:18-alpine
-    restart: unless-stopped
+    restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-inventory}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-inventory}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
-      # Postgres 18+ images keep data under /var/lib/postgresql/<major>/, so mount the parent.
-      - pgdata:/var/lib/postgresql
+      # Database files live in this host folder and survive rebuilds and `down`.
+      # :Z labels it for SELinux (Fedora/RHEL) so the container may use it.
+      - ${POSTGRES_DATA_DIR:-./data/postgres}:/var/lib/postgresql:Z
+    shm_size: 256mb
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 5s
       retries: 10
-
-  mailpit:
-    image: docker.io/axllent/mailpit:latest
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:1025:1025" # SMTP
-      - "127.0.0.1:8025:8025" # Web inbox
+      # First start initialises the data folder, which can be slow on btrfs/HDDs.
+      start_period: 60s
 
   migrate:
-    profiles: [app]
     build:
       context: .
       target: migrator
@@ -44,24 +44,28 @@ services:
         condition: service_healthy
 
   app:
-    profiles: [app]
     build:
       context: .
       target: runner
     image: localhost/inventory-management-system:latest
-    restart: unless-stopped
+    restart: always
     environment:
       DATABASE_URL: *database-url
-      APP_URL: ${APP_URL:-http://localhost:3000}
+      APP_URL: ${APP_URL:?set APP_URL in .env}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env}
-      SMTP_HOST: ${CONTAINER_SMTP_HOST:-mailpit}
-      SMTP_PORT: ${SMTP_PORT:-1025}
+      # CONTAINER_SMTP_HOST only matters when the container must reach SMTP by another name
+      # (e.g. "mailpit" when testing the full stack locally).
+      SMTP_HOST: ${CONTAINER_SMTP_HOST:-${SMTP_HOST:?set SMTP_HOST in .env}}
+      SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      MAIL_FROM: ${MAIL_FROM:-Inventory <no-reply@inventory.local>}
+      MAIL_FROM: ${MAIL_FROM:?set MAIL_FROM in .env}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
     ports:
-      - "127.0.0.1:3000:3000"
+      # 127.0.0.1 = this machine only (use with the https profile); 0.0.0.0 = whole network.
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-3000}:3000"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 15s
@@ -72,5 +76,54 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  nginx:
+    profiles: [https]
+    image: docker.io/library/nginx:stable-alpine
+    restart: always
+    # Serves HTTP-only (for Let's Encrypt's check) until the certificate exists, then HTTPS.
+    entrypoint: ["/bin/sh", "/etc/nginx/ims/entrypoint.sh"]
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    # Let's Encrypt needs the real 80/443. Rootless Podman may bind them after:
+    #   sudo sysctl -w net.ipv4.ip_unprivileged_port_start=80   (persist in /etc/sysctl.d/)
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/nginx:/etc/nginx/ims:ro,Z
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot-webroot:/var/www/certbot:ro
+    depends_on:
+      app:
+        condition: service_healthy
+
+  certbot:
+    profiles: [https]
+    image: docker.io/certbot/certbot:latest
+    restart: always
+    # Gets the certificate once, then checks for renewal twice a day.
+    entrypoint: ["/bin/sh", "/etc/ims-certbot/certbot.sh"]
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-}
+      LETSENCRYPT_STAGING: ${LETSENCRYPT_STAGING:-false}
+    volumes:
+      - ./deploy/certbot:/etc/ims-certbot:ro,Z
+      - letsencrypt:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+    depends_on:
+      - nginx
+
+  mailpit:
+    profiles: [dev]
+    image: docker.io/axllent/mailpit:latest
+    restart: always
+    ports:
+      - "127.0.0.1:1025:1025" # SMTP
+      - "127.0.0.1:8025:8025" # Web inbox
+
 volumes:
-  pgdata:
+  # Let's Encrypt account, certificates and keys (written by certbot, read by nginx).
+  letsencrypt:
+  # Challenge files Let's Encrypt fetches over HTTP to confirm you control the domain.
+  certbot-webroot:

@@ -18,7 +18,7 @@ export function AuthCard({
         {description && <p className="mt-1.5 text-sm leading-6 text-gray-600">{description}</p>}
         <div className="mt-6">{children}</div>
       </section>
-      {footer && <p className="mt-6 text-center text-sm text-gray-600">{footer}</p>}
+      {footer && <div className="mt-6 text-center text-sm text-gray-600">{footer}</div>}
     </>
   );
 }

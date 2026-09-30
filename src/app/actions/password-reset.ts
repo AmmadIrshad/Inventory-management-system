@@ -1,12 +1,10 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { after } from "next/server";
-import { env } from "@/lib/env";
 import { fieldErrorsOf, forgotPasswordSchema, resetPasswordSchema } from "@/lib/validation";
 import { formValue, type FormState } from "@/lib/form-state";
-import { sendPasswordResetEmail } from "@/lib/mail";
-import { formatRetryAfter, rateLimit } from "@/lib/rate-limit";
+import { passwordChangedMessage, passwordResetMessage, sendEmailInBackground } from "@/lib/emails";
+import { firstBlocked, formatRetryAfter, rateLimit } from "@/lib/rate-limit";
 import { getRequestMeta } from "@/lib/request";
 import { PASSWORD_RESET_TTL_MINUTES } from "@/lib/auth/constants";
 import { deleteSessionCookie } from "@/lib/auth/cookies";
@@ -21,32 +19,20 @@ export async function requestPasswordReset(_prev: FormState, formData: FormData)
 
   const { email } = parsed.data;
   const meta = await getRequestMeta();
-  for (const limit of [
-    rateLimit(`reset:ip:${meta.ipAddress}`, 10, FIFTEEN_MINUTES),
-    rateLimit(`reset:email:${email}`, 3, FIFTEEN_MINUTES),
-  ]) {
-    if (!limit.ok) {
-      return { error: `Too many reset requests. Try again in ${formatRetryAfter(limit.retryAfterSeconds)}.`, values };
-    }
+  const blocked = firstBlocked([
+    await rateLimit(`reset:ip:${meta.ipAddress}`, 10, FIFTEEN_MINUTES),
+    await rateLimit(`reset:email:${email}`, 3, FIFTEEN_MINUTES),
+  ]);
+  if (blocked) {
+    return { error: `Too many reset requests. Try again in ${formatRetryAfter(blocked.retryAfterSeconds)}.`, values };
   }
 
   const issued = await createPasswordResetToken(email);
   if (issued) {
-    const resetUrl = new URL("/reset-password", env().APP_URL);
-    resetUrl.searchParams.set("token", issued.token);
-    // Send after the response so timing doesn't reveal whether the account exists.
-    after(async () => {
-      try {
-        await sendPasswordResetEmail({
-          to: issued.user.email,
-          name: issued.user.name,
-          resetUrl: resetUrl.toString(),
-          expiresInMinutes: PASSWORD_RESET_TTL_MINUTES,
-        });
-      } catch (error) {
-        console.error("[password-reset] failed to send email", error);
-      }
-    });
+    sendEmailInBackground(
+      issued.user.email,
+      passwordResetMessage(issued.user.name, issued.token, PASSWORD_RESET_TTL_MINUTES),
+    );
   }
 
   return {
@@ -69,6 +55,7 @@ export async function resetPassword(_prev: FormState, formData: FormData): Promi
     return { error: "This reset link is invalid or has expired. Request a new one." };
   }
 
+  sendEmailInBackground(result.user.email, passwordChangedMessage(result.user.name));
   // Every session was revoked; drop this browser's stale cookie too.
   await deleteSessionCookie();
   redirect("/login?notice=password-reset");

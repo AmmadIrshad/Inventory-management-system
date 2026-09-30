@@ -23,6 +23,9 @@ const envSchema = z.object({
   SMTP_USER: optional,
   SMTP_PASSWORD: optional,
   MAIL_FROM: z.string().min(1),
+  // Optional: "Continue with Google" only appears when both are set.
+  GOOGLE_CLIENT_ID: optional,
+  GOOGLE_CLIENT_SECRET: optional,
 });
 
 export type Env = z.infer<typeof envSchema>;

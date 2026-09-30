@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AuthCard } from "@/components/auth-card";
+import { GoogleSignIn } from "@/components/google-sign-in";
 import { redirectIfSignedIn } from "@/lib/auth/dal";
 import { SignupForm } from "./signup-form";
 
@@ -12,7 +13,7 @@ export default async function SignupPage() {
   return (
     <AuthCard
       title="Create your account"
-      description="You'll be asked to protect it with an authenticator app next."
+      description="We'll email you a link to confirm your address before you can sign in."
       footer={
         <>
           Already have an account?{" "}
@@ -22,6 +23,7 @@ export default async function SignupPage() {
         </>
       }
     >
+      <GoogleSignIn />
       <SignupForm />
     </AuthCard>
   );

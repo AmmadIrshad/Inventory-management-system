@@ -8,10 +8,13 @@ datasource db {
 }
 
 model User {
-  id           String @id @default(uuid(7)) @db.Uuid
-  email        String @unique
-  name         String
-  passwordHash String @map("password_hash")
+  id              String    @id @default(uuid(7)) @db.Uuid
+  email           String    @unique
+  // Null until the owner clicks the verification link (or signs in with a verified Google account).
+  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(3)
+  name            String
+  // Null for accounts that only sign in with Google.
+  passwordHash    String?   @map("password_hash")
 
   // AES-256-GCM encrypted base32 TOTP secret. Set (with totpEnabledAt = null) while
   // enrollment is pending, and kept after confirmation.
@@ -23,11 +26,51 @@ model User {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  sessions            Session[]
-  recoveryCodes       RecoveryCode[]
-  passwordResetTokens PasswordResetToken[]
+  sessions                Session[]
+  recoveryCodes           RecoveryCode[]
+  passwordResetTokens     PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  oauthAccounts           OAuthAccount[]
 
   @@map("users")
+}
+
+model OAuthAccount {
+  id                String   @id @default(uuid(7)) @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  provider          String
+  // The provider's stable user id (OIDC `sub`), not the email, which can change.
+  providerAccountId String   @map("provider_account_id")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@unique([userId, provider])
+  @@map("oauth_accounts")
+}
+
+model EmailVerificationToken {
+  // SHA-256 of the token sent by email.
+  id        String   @id
+  userId    String   @map("user_id") @db.Uuid
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("email_verification_tokens")
+}
+
+/// Fixed-window counters shared by every app instance.
+model RateLimit {
+  key     String   @id
+  hits    Int
+  resetAt DateTime @map("reset_at") @db.Timestamptz(3)
+
+  @@index([resetAt])
+  @@map("rate_limits")
 }
 
 model Session {

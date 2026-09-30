@@ -1,5 +1,9 @@
 .git
 .github
+data
+backups
+deploy
+scripts
 .next
 node_modules
 src/generated

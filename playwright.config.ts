@@ -8,6 +8,8 @@ export default defineConfig({
   testDir: "e2e",
   workers: 1,
   timeout: 120_000,
+  // `next dev` compiles each route on first visit, which can exceed the 5s default.
+  expect: { timeout: 15_000 },
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   use: { baseURL, trace: "retain-on-failure" },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],

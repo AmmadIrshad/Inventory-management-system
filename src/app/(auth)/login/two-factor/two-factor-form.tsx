@@ -14,16 +14,16 @@ export function TwoFactorForm() {
     <form action={action} className="space-y-5">
       {state.error && <Alert variant="error">{state.error}</Alert>}
       <Field
-        label="Authentication or recovery code"
+        label="Authentication code"
         name="code"
+        inputMode="numeric"
         autoComplete="one-time-code"
-        autoCapitalize="none"
-        spellCheck={false}
+        pattern="[0-9 ]*"
         required
         autoFocus
-        maxLength={64}
-        placeholder="123456  or  xxxx-xxxx-xxxx-xxxx"
-        className="font-mono tracking-wider"
+        maxLength={7}
+        placeholder="123456"
+        className="font-mono text-lg tracking-[0.4em]"
         errors={state.fieldErrors?.code}
       />
       <SubmitButton fullWidth pendingText="Verifying…">

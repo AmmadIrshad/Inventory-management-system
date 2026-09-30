@@ -1,36 +1,39 @@
 import "server-only";
+import { prisma } from "@/lib/db";
 
-type Bucket = { count: number; resetAt: number };
-
-// In-process fixed-window limiter. Good for a single container; move to Redis/Postgres
-// before running more than one app instance.
-const globalForRateLimit = globalThis as unknown as { rateLimitBuckets?: Map<string, Bucket> };
-const buckets = (globalForRateLimit.rateLimitBuckets ??= new Map());
+// Fixed-window counters stored in PostgreSQL, so limits survive restarts and are shared by
+// every app instance (the app container itself keeps no state).
 
 export type RateLimitResult = { ok: true } | { ok: false; retryAfterSeconds: number };
+type Blocked = Extract<RateLimitResult, { ok: false }>;
 
-export function rateLimit(key: string, limit: number, windowMs: number): RateLimitResult {
-  const now = Date.now();
-
-  if (buckets.size > 10_000) {
-    for (const [bucketKey, bucket] of buckets) {
-      if (bucket.resetAt <= now) buckets.delete(bucketKey);
-    }
-  }
-
-  const bucket = buckets.get(key);
-  if (!bucket || bucket.resetAt <= now) {
-    buckets.set(key, { count: 1, resetAt: now + windowMs });
-    return { ok: true };
-  }
-
-  bucket.count += 1;
-  if (bucket.count <= limit) return { ok: true };
-  return { ok: false, retryAfterSeconds: Math.ceil((bucket.resetAt - now) / 1000) };
+export function firstBlocked(results: RateLimitResult[]): Blocked | undefined {
+  return results.find((result): result is Blocked => !result.ok);
 }
 
-export function clearRateLimit(key: string): void {
-  buckets.delete(key);
+export async function rateLimit(key: string, limit: number, windowMs: number): Promise<RateLimitResult> {
+  const now = new Date();
+  const windowEnd = new Date(now.getTime() + windowMs);
+
+  // One atomic statement: start a new window if the old one ended, otherwise count the hit.
+  const [row] = await prisma.$queryRaw<{ hits: number; reset_at: Date }[]>`
+    INSERT INTO rate_limits (key, hits, reset_at)
+    VALUES (${key}, 1, ${windowEnd})
+    ON CONFLICT (key) DO UPDATE SET
+      hits     = CASE WHEN rate_limits.reset_at <= ${now} THEN 1 ELSE rate_limits.hits + 1 END,
+      reset_at = CASE WHEN rate_limits.reset_at <= ${now} THEN EXCLUDED.reset_at ELSE rate_limits.reset_at END
+    RETURNING hits, reset_at`;
+
+  if (Math.random() < 0.01) {
+    await prisma.rateLimit.deleteMany({ where: { resetAt: { lt: now } } });
+  }
+
+  if (row.hits <= limit) return { ok: true };
+  return { ok: false, retryAfterSeconds: Math.max(1, Math.ceil((row.reset_at.getTime() - now.getTime()) / 1000)) };
+}
+
+export async function clearRateLimit(key: string): Promise<void> {
+  await prisma.rateLimit.deleteMany({ where: { key } });
 }
 
 export function formatRetryAfter(seconds: number): string {

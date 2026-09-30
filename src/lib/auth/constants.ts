@@ -8,10 +8,9 @@ export const SESSION_RENEW_THRESHOLD_MS = 15 * 24 * 60 * 60 * 1000;
 /** A password-verified session waiting for its second factor. */
 export const PENDING_TWO_FACTOR_TTL_MS = 10 * 60 * 1000;
 export const MAX_TWO_FACTOR_ATTEMPTS = 5;
-/** How long after signing in a recovery-code user may remove 2FA without re-authenticating. */
-export const RECENT_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 
 export const PASSWORD_RESET_TTL_MINUTES = 30;
+export const EMAIL_VERIFICATION_TTL_HOURS = 24;
 
 export function shouldUseSecureCookies(): boolean {
   return process.env.APP_URL?.startsWith("https://") ?? false;

@@ -13,11 +13,6 @@ import {
   isRecoveryCodeFormat,
 } from "@/lib/recovery-codes";
 
-export type SecondFactorResult =
-  | { ok: true; method: "totp" }
-  | { ok: true; method: "recovery-code"; remainingRecoveryCodes: number }
-  | { ok: false };
-
 function stripSpaces(input: string): string {
   return input.replace(/\s+/g, "");
 }
@@ -64,29 +59,31 @@ export function countRemainingRecoveryCodes(userId: string): Promise<number> {
   return prisma.recoveryCode.count({ where: { userId, usedAt: null } });
 }
 
-/** The login-time check: a 6-digit code is treated as TOTP, anything else as a recovery code. */
-export async function verifySecondFactor(userId: string, input: string): Promise<SecondFactorResult> {
-  const code = stripSpaces(input);
-
-  if (isTotpCodeFormat(code)) {
-    return (await consumeTotpCode(userId, code)) ? { ok: true, method: "totp" } : { ok: false };
-  }
-
-  if (isRecoveryCodeFormat(code) && (await consumeRecoveryCode(userId, code))) {
-    return {
-      ok: true,
-      method: "recovery-code",
-      remainingRecoveryCodes: await countRemainingRecoveryCodes(userId),
-    };
-  }
-
-  return { ok: false };
-}
-
-/** Only accepts an authenticator code (used for sensitive settings changes). */
-export async function verifyTotpOnly(userId: string, input: string): Promise<boolean> {
+/** The sign-in second factor: only a code from the authenticator app is accepted. */
+export async function verifyAuthenticatorCode(userId: string, input: string): Promise<boolean> {
   const code = stripSpaces(input);
   return isTotpCodeFormat(code) && consumeTotpCode(userId, code);
+}
+
+/**
+ * Recovery codes have one purpose: turning 2FA off when the authenticator is lost.
+ * The code is marked as used, then 2FA (and every remaining code) is removed.
+ */
+export async function disableTwoFactorWithRecoveryCode(userId: string, input: string): Promise<boolean> {
+  if (!isRecoveryCodeFormat(input) || !(await consumeRecoveryCode(userId, input))) return false;
+  await disableTwoFactor(userId);
+  return true;
+}
+
+/** Turning 2FA off from settings: proof is a current authenticator code or a recovery code. */
+export async function disableTwoFactorWithProof(userId: string, input: string): Promise<boolean> {
+  const code = stripSpaces(input);
+  if (isTotpCodeFormat(code)) {
+    if (!(await consumeTotpCode(userId, code))) return false;
+    await disableTwoFactor(userId);
+    return true;
+  }
+  return disableTwoFactorWithRecoveryCode(userId, code);
 }
 
 /** Creates (or keeps) a not-yet-confirmed TOTP secret. */

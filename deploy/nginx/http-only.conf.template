@@ -1,0 +1,17 @@
+# Used only until the certbot container has obtained the certificate for __DOMAIN__.
+# It answers Let's Encrypt's checks and tells visitors that HTTPS is being set up.
+
+server {
+    listen 80;
+    server_name __DOMAIN__;
+    server_tokens off;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        default_type text/plain;
+        return 503 "HTTPS is being set up for __DOMAIN__. Please try again in a minute.\n";
+    }
+}
