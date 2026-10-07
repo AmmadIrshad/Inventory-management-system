@@ -33,7 +33,7 @@
     "nodemailer": "^10.0.12",
     "openid-client": "^6.8.8",
     "otpauth": "^9.5.2",
-    "pg": "^8.23.0",
+    "pg": "^8.23.1",
     "qrcode": "^1.5.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
